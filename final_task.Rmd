@@ -1,0 +1,218 @@
+---
+title: "Analisis"
+author: "Reinier Mujica"
+date: "29 de diciembre de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Descripción del dataset
+El dataset seleccionado es [Health Insurance and Hours Worked By Wives](https://vincentarelbundock.github.io/Rdatasets/doc/Ecdat/HI.html), el cual contiene información acerca de la covertura medica y la cantidad de horas semanales trabajadas por las mujeres casadas en Estados Unidos. La información que contiene el dataset fue recopilada en el año 1993, contiene 22272 observaciones con 13 características cada una. El dataset no contiene valores NA. En este análisis de los datos trataremos de predecir la variable **whrswk** que es la cantidad de horas trabajadas a la semana por las esposas.
+
+
+### Limpiamos el workspace de R
+```{r}
+rm(list=ls())
+setwd("d:/MADM/Analisis/FINAL/")
+
+```
+
+### Cargamos los datos
+```{r}
+datos <- read.csv2('HI.csv', dec=".", sep = ",")
+
+# eliminamos la primera columna que es solo un contador de filas
+datos["X"] = NULL
+
+# eliminamos posibles valores NA dentro del dataset
+datos = na.omit(datos)
+attach(datos)
+```
+
+### Resumen del dataset
+A continuación se muestra un resumen del dataset usando la función **summary** de R.
+```{r}
+library(knitr)
+data_summary = summary(datos)
+kable(data_summary)
+```
+
+### Dividimos el dataset en TRAIN y TEST
+```{r}
+seed = 1991
+set.seed(seed)
+
+# generamos los datos de TRAIN con el 70% del dataset
+train.size = round(dim(datos)[1] * 0.7)
+train.indexs = sample(1:dim(datos)[1], train.size)
+train.data = datos[train.indexs, ]
+
+test.indexs = -train.indexs
+test.data = datos[test.indexs, ]
+test.size = dim(test.data)[1]
+
+```
+
+### Realizamos algunas Visualizaciones
+```{r}
+#View(train.data)
+library(ggplot2)
+
+ggplot(data = datos) +
+  geom_point(mapping = aes(x = region, y = husby))
+
+```
+### Aplicamos un MCO a los datos 
+Para tener una referencia del error de prueba al realizar predicciones en el dataset vamos a ajustar un modelo de mínimos cuadrados ordinarios (MCO) con todas las variables explicativas en el conjunto de entrenamiento, el error de prueba obtenido lo guardaremos para futuras comparaciones con métodos más avanzados.
+
+```{r}
+set.seed(seed)
+mco.fit = glm(whrswk ~ ., data = train.data)
+mco.pred = predict(mco.fit, newdata = test.data)
+
+error.mco <- mean((test.data[, "whrswk"] - mco.pred) ^ 2)
+
+summary(mco.fit)
+kable(mco.fit$coefficients)
+```
+Aplicando el MCO obtenemos el error de prueba `r error.mco`.
+
+
+### Aplicamos métodos mas avanzados
+
+## Usando Random Forest
+A continuación usaremos el método de Random Forest en los datos de entrenamiento.
+
+```{r}
+library(randomForest)
+library(MASS)
+set.seed(seed)
+Ntree = 300
+
+rf.fit=randomForest(whrswk~.,data=train.data, ntree = Ntree)
+rf.fit
+rf.pred = predict(rf.fit, test.data)
+error.rf = with(test.data, mean((whrswk - rf.pred)^2))
+
+```
+Como resultado obtenemos se usan `r rf.fit$mtry` (**mtry**) variables para cada partición y el error obtenido en los datos de prueba es `r error.rf`, el cual es menor que en el MCO. 
+
+Como el número de variables independientes es `r dim(datos)[2] - 1`, calcularemos todos los `r dim(datos)[2] - 1` valores de **mtry**.
+
+```{r}
+dimension = dim(datos)[2] - 1
+oob.err=double(dimension)
+test.err=double(dimension)
+
+for(mtry in 1:dimension) {
+  fit=randomForest(whrswk~., data = train.data, mtry = mtry, ntree = Ntree)
+  oob.err[mtry] = fit$mse[Ntree]
+  pred=predict(fit, test.data)
+  test.err[mtry]=with(test.data, mean((whrswk - pred)^2))
+  cat(mtry," ") ## Print out the value of the loop
+}
+matplot(1:mtry,cbind(test.err,oob.err),pch=19,col=c("red","blue"),type="b",ylab="Mean Squared Error")
+legend("topright",legend=c("Test","OOB"),pch=19,col=c("red","blue"))
+```
+
+Como se puede apreciar en el gráfico el error mas pequeño es cuando se usa **mtry = 3**, este es de `r test.err[3]`.
+
+
+### BOOSTING
+Ahora usaremos BOOSTING como método mas avanzado y esperamos obtener un error aun menor
+
+Boosting builds lots of smaller trees. Unlike random forests, each new tree in boosting tries to patch up the deficiencies of the current ensemble.
+```{r}
+install.packages("gbm")
+require(gbm)
+boost.boston=gbm(medv~.,data=Boston[train,],distribution="gaussian",n.trees=10000,shrinkage=0.01,interaction.depth=4)
+summary(boost.boston)
+plot(boost.boston,i="lstat")
+plot(boost.boston,i="rm")
+```
+Lets make a prediction on the test set. With boosting, the number of trees is a tuning parameter, and if we have too many we can overfit. So we should use cross-validation to select the number of trees. We will leave this as an exercise. Instead, we will compute the test error as a function of the number of trees, and make a plot.
+
+```{r}
+n.trees=seq(from=100,to=10000,by=100)
+predmat=predict(boost.boston,newdata=Boston[-train,],n.trees=n.trees)
+dim(predmat)
+berr=with(Boston[-train,],apply( (predmat-medv)^2,2,mean))
+plot(n.trees,berr,pch=19,ylab="Mean Squared Error", xlab="# Trees",main="Boosting Test Error")
+# Comparison with Random Forest
+abline(h=min(test.err),col="red")
+```
+Cross-validation
+
+```{r}
+## Do 5-fold cross-validation
+boost.boston.cv=gbm(medv~.,data=Boston[train,],distribution="gaussian",n.trees=10000,cv.folds=5,shrinkage=0.01,interaction.depth=4)
+# check performance using 5-fold cross-validation
+best.iter <- gbm.perf(boost.boston.cv,method="cv")
+print(best.iter)
+# plot the performance # plot variable influence
+summary(boost.boston.cv,n.trees=10000) # based on ten thousand trees
+summary(boost.boston.cv,n.trees=best.iter) # based on the estimated best number of trees
+# predict on the new data using "best" number of trees
+n.trees.2=seq(from=100,to=best.iter,by=100)
+predmat.2=predict(boost.boston,newdata=Boston[-train,],n.trees=n.trees.2)
+dim(predmat.2)
+berr.2=with(Boston[-train,],apply( (predmat.2-medv)^2,2,mean))
+plot(n.trees.2,berr.2,pch=19,ylab="Mean Squared Error", xlab="# Trees",main="Boosting Test Error")
+# Comparison with Random Forest
+abline(h=min(test.err),col="red")
+``` 
+
+
+
+### Comparamos y gráficamos los resultados
+
+
+
+
+
+
+
+A dataframe containing :
+
+whrswk
+hours worked per week by wife
+
+hhi
+wife covered by husband's HI ?
+
+whi
+wife has HI thru her job ?
+
+hhi2
+husband has HI thru own job ?
+
+education
+a factor with levels, "<9years", "9-11years", "12years", "13-15years", "16years", ">16years"
+
+race
+one of white, black, other
+
+hispanic
+hispanic ?
+
+experience
+years of potential work experience
+
+kidslt6
+number of kids under age of 6
+
+kids618
+number of kids 6â€“18 years old
+
+husby
+husband's income in thousands of dollars
+
+region
+one of other, northcentral, south, west
+
+wght
+sampling weight
+
