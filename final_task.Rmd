@@ -16,7 +16,7 @@ El dataset seleccionado es [Health Insurance and Hours Worked By Wives](https://
 ### Limpiamos el workspace de R
 ```{r}
 rm(list=ls())
-setwd("d:/MADM/Analisis/FINAL/")
+setwd("d:/MADM/Analisis/statics_final_task/")
 
 ```
 
@@ -41,6 +41,8 @@ kable(data_summary)
 ```
 
 ### Dividimos el dataset en TRAIN y TEST
+Ahora dividimos el dataset en dos conjuntos (Train y Test) con un ratio de 0.7, hemos fijado una constante **seed** que contendrá la semilla que se va a utilizar en todo el análisis.
+
 ```{r}
 seed = 1991
 set.seed(seed)
@@ -57,14 +59,30 @@ test.size = dim(test.data)[1]
 ```
 
 ### Realizamos algunas Visualizaciones
-```{r}
-#View(train.data)
-library(ggplot2)
+Ahora realizaremos algunas visualizaciones interesantes para entender los datos. Haremos uso de la libreria **ggplot**.
 
+Aqui podemos ver la distribución de muestras por region, aunque no es exactamente la misma en cada region podemos ver que es bastante balanceado.
+```{r}
+library(ggplot2)
 ggplot(data = datos) +
-  geom_point(mapping = aes(x = region, y = husby))
+  geom_bar(mapping = aes(x = region))
 
 ```
+
+Sin embargo no sucede lo mismo con la distribución de las muestras por raza, donde casi todas se concentran en un solo valor.
+```{r}
+ggplot(data = datos) +
+  geom_bar(mapping = aes(x = race))
+
+```
+Con respecto a la variable **hispanic** sucede igual, todas las muestras se concentran en un solo valor.
+```{r}
+ggplot(data = datos) +
+  geom_bar(mapping = aes(x = hispanic))
+
+```
+
+
 ### Aplicamos un MCO a los datos 
 Para tener una referencia del error de prueba al realizar predicciones en el dataset vamos a ajustar un modelo de mínimos cuadrados ordinarios (MCO) con todas las variables explicativas en el conjunto de entrenamiento, el error de prueba obtenido lo guardaremos para futuras comparaciones con métodos más avanzados.
 
@@ -80,17 +98,16 @@ kable(mco.fit$coefficients)
 ```
 Aplicando el MCO obtenemos el error de prueba `r error.mco`.
 
-
 ### Aplicamos métodos mas avanzados
 
-## Usando Random Forest
-A continuación usaremos el método de Random Forest en los datos de entrenamiento.
+#### Usando Random Forest
+A continuación usaremos el método de Random Forest en los datos de entrenamiento usaremos un valor de **ntree** que nos permita realizar las simulaciones sin consumir una cantidad excesiva de tiempo.
 
 ```{r}
 library(randomForest)
 library(MASS)
 set.seed(seed)
-Ntree = 300
+Ntree = 5
 
 rf.fit=randomForest(whrswk~.,data=train.data, ntree = Ntree)
 rf.fit
@@ -104,115 +121,103 @@ Como el número de variables independientes es `r dim(datos)[2] - 1`, calcularemo
 
 ```{r}
 dimension = dim(datos)[2] - 1
-oob.err=double(dimension)
-test.err=double(dimension)
+oob.error = double(dimension)
+error.rf.full =double(dimension)
 
 for(mtry in 1:dimension) {
-  fit=randomForest(whrswk~., data = train.data, mtry = mtry, ntree = Ntree)
-  oob.err[mtry] = fit$mse[Ntree]
-  pred=predict(fit, test.data)
-  test.err[mtry]=with(test.data, mean((whrswk - pred)^2))
-  cat(mtry," ") ## Print out the value of the loop
+  fit = randomForest(whrswk~., data = train.data, mtry = mtry, ntree = Ntree)
+  oob.error[mtry] = fit$mse[Ntree]
+  pred = predict(fit, test.data)
+  error.rf.full[mtry] = with(test.data, mean((whrswk - pred) ^ 2))
 }
-matplot(1:mtry,cbind(test.err,oob.err),pch=19,col=c("red","blue"),type="b",ylab="Mean Squared Error")
+
+matplot(1:mtry, cbind(error.rf.full, oob.error), pch=19, col=c("red", "blue"), type="b", ylab="Mean Squared Error")
 legend("topright",legend=c("Test","OOB"),pch=19,col=c("red","blue"))
 ```
 
-Como se puede apreciar en el gráfico el error mas pequeño es cuando se usa **mtry = 3**, este es de `r test.err[3]`.
+Como se puede apreciar en el gráfico el error mas pequeño es cuando se usa mtry = `r which(min(error.rf.full) == error.rf.full)`, este es de `r min(error.rf.full)`.
 
-
-### BOOSTING
-Ahora usaremos BOOSTING como método mas avanzado y esperamos obtener un error aun menor
-
-Boosting builds lots of smaller trees. Unlike random forests, each new tree in boosting tries to patch up the deficiencies of the current ensemble.
 ```{r}
-install.packages("gbm")
-require(gbm)
-boost.boston=gbm(medv~.,data=Boston[train,],distribution="gaussian",n.trees=10000,shrinkage=0.01,interaction.depth=4)
-summary(boost.boston)
-plot(boost.boston,i="lstat")
-plot(boost.boston,i="rm")
+# nos quedamos con el menor error de los Random Forests
+error.rf = min(c(error.rf, min(error.rf.full)))
 ```
-Lets make a prediction on the test set. With boosting, the number of trees is a tuning parameter, and if we have too many we can overfit. So we should use cross-validation to select the number of trees. We will leave this as an exercise. Instead, we will compute the test error as a function of the number of trees, and make a plot.
+
+
+#### BOOSTING
+Ahora usaremos BOOSTING como método mas avanzado y esperamos obtener un error aun menor.
 
 ```{r}
-n.trees=seq(from=100,to=10000,by=100)
-predmat=predict(boost.boston,newdata=Boston[-train,],n.trees=n.trees)
-dim(predmat)
-berr=with(Boston[-train,],apply( (predmat-medv)^2,2,mean))
-plot(n.trees,berr,pch=19,ylab="Mean Squared Error", xlab="# Trees",main="Boosting Test Error")
-# Comparison with Random Forest
-abline(h=min(test.err),col="red")
+library(gbm)
+boosting.fit = gbm(whrswk~., data=train.data, distribution = "gaussian" , n.trees=5, shrinkage=0.01, interaction.depth = 4)
+summary(boosting.fit)
+
 ```
-Cross-validation
+Luego de entrenar el modelo en los datos de entrenamiento hacemos la predicción en los datos de prueba.
+```{r}
+n.trees=seq(from=100, to=10000, by=100)
+boosting.pred = predict(boosting.fit, newdata = test.data, n.trees=n.trees)
+
+error.boosting = with(test.data, apply((boosting.pred - whrswk) ^ 2, 2, mean))
+
+
+plot(n.trees, error.boosting, pch=19, ylab="Mean Squared Error", xlab="# Trees",main="Boosting Test Error")
+```
+
+Ahora aplicaremos validación cruzada con Boosting.
 
 ```{r}
-## Do 5-fold cross-validation
-boost.boston.cv=gbm(medv~.,data=Boston[train,],distribution="gaussian",n.trees=10000,cv.folds=5,shrinkage=0.01,interaction.depth=4)
-# check performance using 5-fold cross-validation
-best.iter <- gbm.perf(boost.boston.cv,method="cv")
-print(best.iter)
-# plot the performance # plot variable influence
-summary(boost.boston.cv,n.trees=10000) # based on ten thousand trees
-summary(boost.boston.cv,n.trees=best.iter) # based on the estimated best number of trees
-# predict on the new data using "best" number of trees
-n.trees.2=seq(from=100,to=best.iter,by=100)
-predmat.2=predict(boost.boston,newdata=Boston[-train,],n.trees=n.trees.2)
-dim(predmat.2)
-berr.2=with(Boston[-train,],apply( (predmat.2-medv)^2,2,mean))
-plot(n.trees.2,berr.2,pch=19,ylab="Mean Squared Error", xlab="# Trees",main="Boosting Test Error")
-# Comparison with Random Forest
-abline(h=min(test.err),col="red")
+CV = 5
+Ntree = 1
+
+boosting.cv = gbm(whrswk~., data=train.data, distribution = "gaussian", n.trees=Ntree, cv.folds = CV, shrinkage = 0.01, interaction.depth = 4)
+
+best_iter <- gbm.perf(boosting.cv, method="cv")
+print(best_iter)
+
+summary(boosting.cv, n.trees = Ntree)
+summary(boosting.cv, n.trees = best_iter) 
+
+
+n.trees = seq(from=100, to=best_iter, by=100)
+predmat = predict(boosting.fit, newdata = test.data, n.trees = n.trees)
+
+error.boosting_cv = with(test.data, apply((predmat - whrswk) ^ 2, 2, mean))
+plot(n.trees, error.boosting_cv, pch=19, ylab = "Mean Squared Error", xlab = "# Trees", main = "Boosting Test Error")
 ``` 
 
+#### BOOSTING CON CARET
+Ahora usaremos la libreria **caret** para tunear los párametros al modelo de BOOSTING
+```{r}
+library(caret)
+set.seed(seed)
 
+gbmGrid <- expand.grid(interaction.depth = 4,
+                       n.trees = seq(500, 2000, 500),
+                       shrinkage = c(0.01, 0.05),
+                       n.minobsinnode = 10)
+fitControl <- trainControl(method = 'cv', number = 5, summaryFunction = defaultSummary)
+
+gradientBoosting.fit <- train(whrswk~., data = train.data, method = 'gbm', trControl=fitControl, tuneGrid=gbmGrid, metric='RMSE')
+
+plot(gradientBoosting.fit)
+
+```
+Después de realizar la búsqueda de los mejores parámetros nos queda que son `r gradientBoosting.fit$bestTune`.
+
+```{r}
+res <- gradientBoosting.fit$results
+RMSE <- subset(res[5])
+```
+El error de entrenamiento nos da como resultado `r RMSE`.
+
+Ahora procedemos a utilizar el modelo para realizar la predicción el los datos de prueba.
+```{r}
+gradientBoosting.pred <- predict(gradientBoosting.fit, test.data)
+error.gradientBoosting = (mean((gradientBoosting.pred - test.data$whrswk) ^ 2))
+```
+
+El error en los datos de prueba nos queda `r error.gradientBoosting`.
 
 ### Comparamos y gráficamos los resultados
 
-
-
-
-
-
-
-A dataframe containing :
-
-whrswk
-hours worked per week by wife
-
-hhi
-wife covered by husband's HI ?
-
-whi
-wife has HI thru her job ?
-
-hhi2
-husband has HI thru own job ?
-
-education
-a factor with levels, "<9years", "9-11years", "12years", "13-15years", "16years", ">16years"
-
-race
-one of white, black, other
-
-hispanic
-hispanic ?
-
-experience
-years of potential work experience
-
-kidslt6
-number of kids under age of 6
-
-kids618
-number of kids 6â€“18 years old
-
-husby
-husband's income in thousands of dollars
-
-region
-one of other, northcentral, south, west
-
-wght
-sampling weight
 
