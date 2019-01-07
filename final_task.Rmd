@@ -1,5 +1,5 @@
 ---
-title: "Aprendizaje estadístico"
+title: "Trabajo Final de Aprendizaje estadístico"
 author: "Reinier César Mujica Hernández"
 date: "29 de diciembre de 2018"
 output: html_document
@@ -40,44 +40,19 @@ colnames(datos)
 ```
 El significado de cada una de las variables se mustra a continuación:
 
-whrswk
-hours worked per week by wife
-
-hhi
-wife covered by husband's HI ?
-
-whi
-wife has HI thru her job ?
-
-hhi2
-husband has HI thru own job ?
-
-education
-a factor with levels, "<9years", "9-11years", "12years", "13-15years", "16years", ">16years"
-
-race
-one of white, black, other
-
-hispanic
-hispanic ?
-
-experience
-years of potential work experience
-
-kidslt6
-number of kids under age of 6
-
-kids618
-number of kids 6–18 years old
-
-husby
-husband's income in thousands of dollars
-
-region
-one of other, northcentral, south, west
-
-wght
-sampling weight
+**whrswk** hours worked per week by wife
+**hhi** wife covered by husband's HI
+**whi** wife has HI thru her job
+**hhi2** husband has HI thru own job ?
+**education** a factor with levels, "<9years", "9-11years", "12years", "13-15years", "16years", ">16years"
+**race** one of white, black, other
+**hispanic** hispanic ?
+**experience** years of potential work experience
+**kidslt6** number of kids under age of 6
+**kids618** number of kids 6–18 years old
+**husby** husband's income in thousands of dollars
+**region** one of other, northcentral, south, west
+**wght** sampling weight
 
 Como se puede observar tenemos variables categóricas y continuas.
 
@@ -150,7 +125,7 @@ A continuación usaremos el método de Random Forest en los datos de entrenamien
 library(randomForest)
 library(MASS)
 set.seed(seed)
-Ntree = 2 # 500
+Ntree = 500
 
 rf.fit=randomForest(whrswk~.,data=train.data, ntree = Ntree)
 rf.fit
@@ -164,7 +139,7 @@ Como el número de variables independientes es `r dim(datos)[2] - 1`, calcularem
 
 ```{r}
 set.seed(seed)
-Ntree = 2 # 300
+Ntree = 300
 
 dimension = dim(datos)[2] - 1
 oob.error = double(dimension)
@@ -195,7 +170,7 @@ Ahora usaremos BOOSTING como método mas avanzado y esperamos obtener un error a
 
 ```{r}
 library(gbm)
-Ntree = 200 #1000 
+Ntree = 1000 
 set.seed(seed)
 
 boosting.fit = gbm(whrswk~., data=train.data, distribution = "gaussian" , n.trees = Ntree, shrinkage=0.01, interaction.depth = 4)
@@ -222,7 +197,7 @@ Ahora aplicaremos validación cruzada con Boosting para intentar mejorar el resu
 
 ```{r}
 CV = 5
-Ntree = 200 #1000
+Ntree = 1000
 set.seed(seed)
 
 boosting.cv = gbm(whrswk~., data=train.data, distribution = "gaussian", n.trees=Ntree, cv.folds = CV, shrinkage = 0.01, interaction.depth = 4)
@@ -257,7 +232,7 @@ Ahora usaremos la libreria **caret** para hacer una búsqueda de los mejores pá
 ```{r}
 library(caret)
 set.seed(seed)
-Ntree = 200 #1000
+Ntree = 1000
 
 gbmGrid <- expand.grid(interaction.depth = 4,
                        n.trees = seq(200, Ntree, 200),
@@ -265,7 +240,7 @@ gbmGrid <- expand.grid(interaction.depth = 4,
                        n.minobsinnode = 10)
 fitControl <- trainControl(method = 'cv', number = 5, summaryFunction = defaultSummary)
 
-gradientBoosting.fit <- train(whrswk~., data = train.data, method = 'gbm', trControl=fitControl, tuneGrid=gbmGrid, metric='RMSE')
+out <- capture.output(gradientBoosting.fit <- train(whrswk~., data = train.data, method = 'gbm', trControl=fitControl, tuneGrid=gbmGrid, metric='RMSE'))
 
 plot(gradientBoosting.fit)
 
