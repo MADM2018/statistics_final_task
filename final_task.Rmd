@@ -107,7 +107,7 @@ A continuación usaremos el método de Random Forest en los datos de entrenamiento
 library(randomForest)
 library(MASS)
 set.seed(seed)
-Ntree = 5
+Ntree = 400
 
 rf.fit=randomForest(whrswk~.,data=train.data, ntree = Ntree)
 rf.fit
@@ -120,6 +120,8 @@ Como resultado obtenemos se usan `r rf.fit$mtry` (**mtry**) variables para cada 
 Como el número de variables independientes es `r dim(datos)[2] - 1`, calcularemos todos los `r dim(datos)[2] - 1` valores de **mtry**.
 
 ```{r}
+set.seed(seed)
+
 dimension = dim(datos)[2] - 1
 oob.error = double(dimension)
 error.rf.full =double(dimension)
@@ -129,6 +131,7 @@ for(mtry in 1:dimension) {
   oob.error[mtry] = fit$mse[Ntree]
   pred = predict(fit, test.data)
   error.rf.full[mtry] = with(test.data, mean((whrswk - pred) ^ 2))
+  cat(mtry," ")
 }
 
 matplot(1:mtry, cbind(error.rf.full, oob.error), pch=19, col=c("red", "blue"), type="b", ylab="Mean Squared Error")
@@ -148,27 +151,36 @@ Ahora usaremos BOOSTING como método mas avanzado y esperamos obtener un error au
 
 ```{r}
 library(gbm)
-boosting.fit = gbm(whrswk~., data=train.data, distribution = "gaussian" , n.trees=5, shrinkage=0.01, interaction.depth = 4)
+Ntree = 1000
+set.seed(seed)
+
+cat("BOOSTING"," ")
+boosting.fit = gbm(whrswk~., data=train.data, distribution = "gaussian" , n.trees = Ntree, shrinkage=0.01, interaction.depth = 4)
 summary(boosting.fit)
 
 ```
 Luego de entrenar el modelo en los datos de entrenamiento hacemos la predicción en los datos de prueba.
 ```{r}
-n.trees=seq(from=100, to=10000, by=100)
+n.trees=seq(from=100, to=Ntree, by=100)
 boosting.pred = predict(boosting.fit, newdata = test.data, n.trees=n.trees)
 
 error.boosting = with(test.data, apply((boosting.pred - whrswk) ^ 2, 2, mean))
 
 
 plot(n.trees, error.boosting, pch=19, ylab="Mean Squared Error", xlab="# Trees",main="Boosting Test Error")
-```
 
-Ahora aplicaremos validación cruzada con Boosting.
+error.boosting = min(error.boosting)
+```
+El menor error de predicción usando el método de **Boosting** es `r error.boosting`.
+
+Ahora aplicaremos validación cruzada con Boosting para intentar mejorar el resultado anterior.
 
 ```{r}
 CV = 5
-Ntree = 1
+Ntree = 1000
+set.seed(seed)
 
+cat("BOOSTING CV"," ")
 boosting.cv = gbm(whrswk~., data=train.data, distribution = "gaussian", n.trees=Ntree, cv.folds = CV, shrinkage = 0.01, interaction.depth = 4)
 
 best_iter <- gbm.perf(boosting.cv, method="cv")
@@ -177,22 +189,25 @@ print(best_iter)
 summary(boosting.cv, n.trees = Ntree)
 summary(boosting.cv, n.trees = best_iter) 
 
-
 n.trees = seq(from=100, to=best_iter, by=100)
 predmat = predict(boosting.fit, newdata = test.data, n.trees = n.trees)
 
 error.boosting_cv = with(test.data, apply((predmat - whrswk) ^ 2, 2, mean))
 plot(n.trees, error.boosting_cv, pch=19, ylab = "Mean Squared Error", xlab = "# Trees", main = "Boosting Test Error")
+error.boosting_cv = min(error.boosting_cv)
 ``` 
 
+Como podemos observar en el gráfico anterior, luego de aplicar la validación cruzada con Boosting el error de prueba es `r error.boosting_cv`.
+
 #### BOOSTING CON CARET
-Ahora usaremos la libreria **caret** para tunear los párametros al modelo de BOOSTING
+Ahora usaremos la libreria **caret** para hacer una búsqueda de los mejores párametros para el método de BOOSTING.
 ```{r}
 library(caret)
 set.seed(seed)
+Ntree = 1000
 
 gbmGrid <- expand.grid(interaction.depth = 4,
-                       n.trees = seq(500, 2000, 500),
+                       n.trees = seq(200, Ntree, 200),
                        shrinkage = c(0.01, 0.05),
                        n.minobsinnode = 10)
 fitControl <- trainControl(method = 'cv', number = 5, summaryFunction = defaultSummary)
@@ -219,5 +234,5 @@ error.gradientBoosting = (mean((gradientBoosting.pred - test.data$whrswk) ^ 2))
 El error en los datos de prueba nos queda `r error.gradientBoosting`.
 
 ### Comparamos y gráficamos los resultados
-
-
+```{r}
+```
